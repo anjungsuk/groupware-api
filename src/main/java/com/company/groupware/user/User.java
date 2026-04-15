@@ -1,6 +1,7 @@
 package com.company.groupware.user;
 
 import com.company.groupware.common.entity.BaseSoftDeleteEntity;
+import com.company.groupware.common.security.SystemRole;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

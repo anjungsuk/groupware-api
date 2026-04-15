@@ -1,4 +1,4 @@
-package com.company.groupware.user;
+package com.company.groupware.common.security;
 
 public enum SystemRole {
     SUPER_ADMIN,
