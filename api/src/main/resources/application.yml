@@ -52,6 +52,16 @@ app:
   storage:
     type: local
 
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+    display-request-duration: true
+  packages-to-scan: com.company.groupware
+
 logging:
   level:
     root: INFO
