@@ -182,3 +182,16 @@ curl -s http://localhost:8080/actuator/health                                   
 
 - **모든 git 커밋·PR 메시지는 한글로 작성한다** (Conventional Commit prefix `feat:` / `fix:` / `refactor:` 등은 영문 유지, Spring Boot · ObjectMapper · JWT 같은 기술 고유명사는 영문 유지).
 - 커스텀 슬래시 커맨드 `/JAVA_CLEAN_COMMIT_GUIDE` (`.claude/commands/` 에 위치) 는 Java 파일 커밋 전 정리 규칙을 정의한다 — 미사용 import/지역변수 제거, `System.out` → SLF4J 교체, 빈 catch 블록 처리, 하드코딩 값 추출 등. **"미사용으로 보여도 절대 삭제하면 안 되는" 어노테이션 목록**(Spring stereotype, JPA, Jackson, MapStruct, AOP 등) 도 정리되어 있으니 Java 코드를 일괄 정리하기 전에 반드시 참조한다.
+### Dependency Injection & Lombok
+- **Always use Lombok's `@RequiredArgsConstructor`** for Dependency Injection in Spring Components (`@Service`, `@RestController`, `@Repository`, `@Component`).
+- Do NOT write explicit constructors for DI unless custom initialization logic is required.
+- Mark injected fields as `private final`.
+
+Example:
+```java
+@RestController
+@RequestMapping("/api/v1/auth")
+@RequiredArgsConstructor
+public class AuthController {
+    private final AuthService authService;
+}
