@@ -20,7 +20,7 @@ spring:
       port: 6379
   flyway:
     enabled: true
-    locations: classpath:db/migration
+    locations: classpath:db/migration,classpath:db/seed-local  # seed-local = 최초 관리자 시드(로컬 전용)
     baseline-on-migrate: true
 
 app:
