@@ -13,8 +13,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /** 사원 도메인의 공식 API. 다른 모듈은 이 서비스를 통해서만 접근한다. */
 @Service
@@ -128,6 +130,28 @@ public class EmployeeService {
     public List<PositionResponse> findPositions() {
         return positionRepository.findAllByOrderBySortOrderAsc().stream()
                 .map(PositionResponse::from).toList();
+    }
+
+    /**
+     * 결재자 탐색 — 시작 부서에서 해당 직급을 찾고, 없으면 상위 부서로 올라간다.
+     *
+     * PRD §5 결재선이 직급 기반(차장 → 실장)인데 차장은 팀에, 실장은 상위 실에 있다.
+     * 부서 계층을 타고 올라가면 두 경우를 한 규칙으로 찾는다.
+     * 조직도가 잘못 설정돼 부모가 순환하면 무한 루프가 되므로 방문한 부서를 기록한다.
+     */
+    public Optional<Long> findApproverId(Long fromDeptId, String positionCode) {
+        Set<Long> visited = new HashSet<>();
+
+        for (Long deptId = fromDeptId; deptId != null && visited.add(deptId); ) {
+            Optional<Employee> approver = employeeRepository
+                    .findFirstByDeptIdAndPositionCodeAndStatusAndDeletedFalseOrderByEmployeeNoAsc(
+                            deptId, positionCode, EmployeeStatus.ACTIVE);
+            if (approver.isPresent()) {
+                return approver.map(Employee::getId);
+            }
+            deptId = deptRepository.findById(deptId).map(Dept::getParentId).orElse(null);
+        }
+        return Optional.empty();
     }
 
     /** 화면 표시용 부서·직급 이름. 승인 전이면 둘 다 null 이다. */
