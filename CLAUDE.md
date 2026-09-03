@@ -195,3 +195,9 @@ Example:
 public class AuthController {
     private final AuthService authService;
 }
+
+## Essential
+- 현재 기술 스텍 JDK25 SpringBoot4
+- 현재 버전에 맞는 개발 방향 잡기
+- 항상 너의 코드를 의심해 Spring Boot4 및 JAVA 25이지만 호환성 및 올바른 사용법인지 확인해
+- ENUM, InterFace 등 각자의 책임에 맞는 곳에 코드가 작성되어있는지 항상 검토
