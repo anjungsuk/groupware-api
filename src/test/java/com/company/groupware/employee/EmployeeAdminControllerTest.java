@@ -84,6 +84,17 @@ class EmployeeAdminControllerTest {
     }
 
     @Test
+    @DisplayName("깨진 요청 본문은 500 이 아니라 C001 로 응답한다")
+    void malformedBodyIsBadRequest() throws Exception {
+        mockMvc.perform(post("/api/v1/admin/employees/7/approve")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{not json"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("C001"))
+                .andExpect(jsonPath("$.message").value("요청 본문을 읽을 수 없습니다."));
+    }
+
+    @Test
     @DisplayName("알 수 없는 status 는 500 이 아니라 C005 로 응답한다")
     void listRejectsUnknownStatus() throws Exception {
         mockMvc.perform(get("/api/v1/admin/employees").param("status", "UNKNOWN"))

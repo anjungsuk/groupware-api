@@ -154,6 +154,20 @@ public class EmployeeService {
         return Optional.empty();
     }
 
+    /** 표시용 이름. 결재선처럼 id 만 가진 쪽에서 쓴다. 없는 id 면 빈 값. */
+    public Optional<String> findNameById(Long employeeId) {
+        return employeeRepository.findById(employeeId)
+                .filter(e -> !e.isDeleted())
+                .map(Employee::getName);
+    }
+
+    /** 상신자의 부서 — 결재선을 만들 시작점이다. */
+    public Optional<Long> findDeptIdById(Long employeeId) {
+        return employeeRepository.findById(employeeId)
+                .filter(e -> !e.isDeleted())
+                .map(Employee::getDeptId);
+    }
+
     /** 화면 표시용 부서·직급 이름. 승인 전이면 둘 다 null 이다. */
     public EmployeeProfile toProfile(Employee employee) {
         String deptName = employee.getDeptId() == null ? null

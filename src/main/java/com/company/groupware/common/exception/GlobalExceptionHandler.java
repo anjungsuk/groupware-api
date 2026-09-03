@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.BindException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
@@ -60,6 +61,18 @@ public class GlobalExceptionHandler {
      * 경로·쿼리 파라미터의 타입 변환 실패 (예: ?status=UNKNOWN 이 EmployeeStatus 로 안 바뀜).
      * 핸들러가 없으면 최상위 Exception 으로 떨어져 클라이언트 실수가 500 으로 보고된다.
      */
+    /**
+     * 요청 본문을 읽지 못했다 — 깨진 JSON, 잘못된 인코딩, 타입 불일치.
+     * 클라이언트가 잘못 보낸 것이므로 500 이 아니라 400 이다.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUnreadableBody(HttpMessageNotReadableException e) {
+        log.warn("요청 본문을 읽을 수 없음: {}", e.getMostSpecificCause().getMessage());
+        ErrorCode code = ErrorCode.INVALID_INPUT;
+        return ResponseEntity.status(code.getStatus())
+                .body(ApiResponse.error(code.getCode(), "요청 본문을 읽을 수 없습니다."));
+    }
+
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<ApiResponse<Map<String, String>>> handleTypeMismatch(
             MethodArgumentTypeMismatchException e) {
