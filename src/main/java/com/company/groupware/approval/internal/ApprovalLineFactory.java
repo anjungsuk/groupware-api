@@ -1,5 +1,7 @@
-package com.company.groupware.approval;
+package com.company.groupware.approval.internal;
 
+import com.company.groupware.approval.ApprovalLine;
+import com.company.groupware.approval.DocForm;
 import com.company.groupware.common.exception.BusinessException;
 import com.company.groupware.common.exception.ErrorCode;
 import com.company.groupware.employee.EmployeeService;

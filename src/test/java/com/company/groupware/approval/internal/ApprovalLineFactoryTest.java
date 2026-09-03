@@ -1,11 +1,16 @@
-package com.company.groupware.approval;
+package com.company.groupware.approval.internal;
 
+import com.company.groupware.approval.ApprovalLine;
+import com.company.groupware.approval.DocForm;
+import com.company.groupware.approval.LineResult;
+import com.company.groupware.approval.LineType;
 import com.company.groupware.common.exception.BusinessException;
 import com.company.groupware.employee.EmployeeService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Optional;
@@ -45,10 +50,17 @@ class ApprovalLineFactoryTest {
         factory = new ApprovalLineFactory(employeeService, builder().build());
     }
 
-    /** DocForm 은 setter 가 없어(불변 의도) 테스트에서만 리플렉션으로 채운다. */
+    /**
+     * DocForm 은 setter 도 정적 팩터리도 없다 — 지금은 DB 에서 읽기만 하기 때문이다.
+     * 양식 등록(T2-1)이 생기면 그 팩터리로 바꾼다. 그때까지만 리플렉션으로 채운다.
+     * 이 테스트는 internal 패키지에 있어 DocForm 의 protected 생성자에 접근할 수 없으므로
+     * 생성자에도 setAccessible 이 필요하다.
+     */
     private static DocForm form(String code, String defaultLine) {
         try {
-            DocForm form = DocForm.class.getDeclaredConstructor().newInstance();
+            Constructor<DocForm> constructor = DocForm.class.getDeclaredConstructor();
+            constructor.setAccessible(true);
+            DocForm form = constructor.newInstance();
             set(form, "code", code);
             set(form, "defaultLine", defaultLine);
             return form;

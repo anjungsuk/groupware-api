@@ -35,7 +35,7 @@ public class DocForm extends BaseEntity {
     @Column(name = "field_schema", nullable = false, columnDefinition = "jsonb")
     private String fieldSchema;
 
-    /** 기본 결재선 — 직급 기반 단계 정의 (PRD §5). {@link DefaultLine} 로 해석한다. */
+    /** 기본 결재선 — 직급 기반 단계 정의 (PRD §5). internal 의 DefaultLine 이 해석한다. */
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "default_line", nullable = false, columnDefinition = "jsonb")
     private String defaultLine;

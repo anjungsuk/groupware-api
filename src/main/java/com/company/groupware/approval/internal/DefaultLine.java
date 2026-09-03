@@ -1,4 +1,6 @@
-package com.company.groupware.approval;
+package com.company.groupware.approval.internal;
+
+import com.company.groupware.approval.LineType;
 
 import java.util.List;
 
