@@ -3,15 +3,17 @@ package com.company.groupware.employee;
 import com.company.groupware.common.exception.BusinessException;
 import com.company.groupware.common.exception.ErrorCode;
 import com.company.groupware.common.exception.FieldValidationException;
+import com.company.groupware.common.response.PageResponse;
 import com.company.groupware.employee.internal.DeptRepository;
 import com.company.groupware.employee.internal.EmployeeNoGenerator;
 import com.company.groupware.employee.internal.EmployeeRepository;
 import com.company.groupware.employee.internal.PositionRepository;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 /** 사원 도메인의 공식 API. 다른 모듈은 이 서비스를 통해서만 접근한다. */
@@ -71,21 +73,45 @@ public class EmployeeService {
         return employeeRepository.findByEmailAndDeletedFalse(email);
     }
 
+    /** 상태별 목록 — 관리자 승인 대기 큐. */
+    public PageResponse<EmployeeSummaryResponse> findByStatus(EmployeeStatus status, Pageable pageable) {
+        return PageResponse.from(employeeRepository.findByStatusAndDeletedFalse(status, pageable)
+                .map(employee -> EmployeeSummaryResponse.from(toProfile(employee))));
+    }
+
     /** 관리자 승인 — 부서·직급을 배정하고 로그인 가능 상태로 만든다. */
     @Transactional
-    public Employee approve(Long employeeId, Long deptId, String positionCode, LocalDate hireDate) {
-        Employee employee = employeeRepository.findById(employeeId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+    public EmployeeSummaryResponse approve(Long employeeId, ApproveRequest request) {
+        Employee employee = findOrThrow(employeeId);
 
-        if (!deptRepository.existsById(deptId)) {
+        if (!deptRepository.existsById(request.deptId())) {
             throw FieldValidationException.of("deptId", "존재하지 않는 부서입니다.");
         }
-        if (!positionRepository.existsById(positionCode)) {
+        if (!positionRepository.existsById(request.positionCode())) {
             throw FieldValidationException.of("positionCode", "존재하지 않는 직급입니다.");
         }
 
-        employee.approve(deptId, positionCode, hireDate);
-        return employee;
+        employee.approve(request.deptId(), request.positionCode(), request.hireDate());
+        return EmployeeSummaryResponse.from(toProfile(employee));
+    }
+
+    /** 관리자 거절 — 로그인 시 A006 으로 막힌다. */
+    @Transactional
+    public EmployeeSummaryResponse reject(Long employeeId) {
+        Employee employee = findOrThrow(employeeId);
+        employee.reject();
+        return EmployeeSummaryResponse.from(toProfile(employee));
+    }
+
+    /** 부서 목록 — 승인 화면의 선택지. */
+    public List<DeptResponse> findDepts() {
+        return deptRepository.findAll().stream().map(DeptResponse::from).toList();
+    }
+
+    /** 직급 목록 — 서열(sortOrder) 오름차순. */
+    public List<PositionResponse> findPositions() {
+        return positionRepository.findAllByOrderBySortOrderAsc().stream()
+                .map(PositionResponse::from).toList();
     }
 
     /** 화면 표시용 부서·직급 이름. 승인 전이면 둘 다 null 이다. */
@@ -97,5 +123,10 @@ public class EmployeeService {
                         .map(Position::getName).orElse(null);
 
         return new EmployeeProfile(employee, deptName, positionName);
+    }
+
+    private Employee findOrThrow(Long employeeId) {
+        return employeeRepository.findById(employeeId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
     }
 }
