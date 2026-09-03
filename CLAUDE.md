@@ -1,5 +1,68 @@
 # CLAUDE.md
+Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+
+## 1. Think Before Coding
+
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+## 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+## 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+## 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+---
+
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## 빌드 & 실행
@@ -35,9 +98,17 @@ docker compose up -d
 src/main/java/com/company/groupware/
 ├── GroupwareApplication.java
 ├── common/        @ApplicationModule(type = OPEN)   ← 공용 모듈, 모든 도메인이 의존 가능
-├── user/          @ApplicationModule                 ← 사용자 도메인 모듈
+├── auth/          @ApplicationModule                 ← 로그인·회원가입 (AuthController/AuthService)
+├── employee/      @ApplicationModule                 ← 사원·부서·직급 (Employee/Dept/Position)
+├── user/          @ApplicationModule                 ← ⚠️ employee 로 대체됨. 미사용 (아래 참조)
 └── vacation/      @ApplicationModule                 ← 휴가 신청 스켈레톤 (향후 확장)
 ```
+
+프론트(`C:\develop\groupware-front`)의 `src/features/<도메인>` 과 1:1 대응한다.
+
+> **`user/` 모듈과 `users` 테이블은 `employee/` + `employees` 로 대체되었다.**
+> 데이터가 없음을 확인한 뒤 모듈 삭제 + `DROP TABLE users` 마이그레이션으로 정리할 것.
+> 지금은 파괴적 변경을 피하려고 남겨 두었다.
 
 ### 모듈 가시성 규칙 (`ModularityTests` 가 강제)
 
@@ -75,6 +146,19 @@ src/main/java/com/company/groupware/
 - **Jackson 3 패키지 위치**: core/databind 타입은 `tools.jackson.*` 아래로 이동했다 (예: `tools.jackson.databind.ObjectMapper`). 다만 **annotation 류는 여전히** `com.fasterxml.jackson.annotation.*` 에 남아 있다. 두 경로를 통합하려 하지 말 것.
 - **`spring-modulith-starter-insight` 는 의도적으로 제외**되어 있다. observability AOP 가 `JwtAuthenticationFilter` (= `OncePerRequestFilter`) 를 CGLIB 으로 감싸면서 `GenericFilterBean.init()` (final 메서드) 호출 시 NPE 가 발생해 Tomcat 기동이 깨진다. 재도입 시 보안 필터를 AOP advice 대상에서 먼저 제외해야 한다.
 - **Spring Boot 4 의 Flyway**: 모듈화된 `org.springframework.boot:spring-boot-flyway` 아티팩트가 필요하다 (이미 선언됨). `flyway-core` 만으로는 자동 구성이 활성화되지 않는다.
+- **`@WebMvcTest` 슬라이스가 없다**: Spring Boot 4 에서 web MVC 테스트 슬라이스가 별도 아티팩트로 분리되어 `spring-boot-test-autoconfigure` 에 `WebMvcTest` 가 들어 있지 않다. 컨트롤러 테스트는 의존성을 늘리지 말고 `MockMvcBuilders.standaloneSetup(controller).setControllerAdvice(new GlobalExceptionHandler())` 로 작성한다 (`AuthControllerTest` 참조).
+
+## 인증 · 회원가입 흐름
+
+- `POST /api/v1/auth/signup` — 사번을 **서버가 채번**하고(`EMP-{연도}-{4자리}`, `employee_no_seq`),
+  계정을 `PENDING` 으로 만든다. **토큰을 발급하지 않는다.**
+- `POST /api/v1/auth/login` — 비밀번호가 맞아도 `status != ACTIVE` 면 로그인시키지 않는다
+  (`A005` 승인 대기 / `A006` 거절). 계정 존재 여부가 드러나지 않도록 인증 실패 메시지는 통일한다.
+- 부서·직급·입사일은 회원가입 시 받지 않는다. **관리자가 승인(`Employee.approve`) 시점에 배정**한다.
+- 필드 단위 검증 실패는 `FieldValidationException` 으로 던진다 → `C001` + `data.{필드}`.
+  프론트가 해당 입력 옆에 인라인으로 표시한다.
+
+계약 문서: `groupware-front/docs/04_인증_API_명세.md`
 
 ## 주요 설정
 

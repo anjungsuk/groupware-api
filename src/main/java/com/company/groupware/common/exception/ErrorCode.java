@@ -17,6 +17,8 @@ public enum ErrorCode {
     INVALID_TOKEN(HttpStatus.UNAUTHORIZED, "A002", "유효하지 않은 토큰입니다."),
     EXPIRED_TOKEN(HttpStatus.UNAUTHORIZED, "A003", "만료된 토큰입니다."),
     LOGIN_FAILED(HttpStatus.UNAUTHORIZED, "A004", "로그인에 실패했습니다."),
+    ACCOUNT_NOT_APPROVED(HttpStatus.FORBIDDEN, "A005", "관리자 승인 대기 중인 계정입니다."),
+    ACCOUNT_REJECTED(HttpStatus.FORBIDDEN, "A006", "가입이 거절된 계정입니다."),
 
     // User
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "U001", "사용자를 찾을 수 없습니다."),
