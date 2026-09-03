@@ -79,10 +79,18 @@ public class EmployeeService {
                 .map(employee -> EmployeeSummaryResponse.from(toProfile(employee))));
     }
 
-    /** 관리자 승인 — 부서·직급을 배정하고 로그인 가능 상태로 만든다. */
+    /**
+     * 관리자 승인 — 부서·직급을 배정하고 로그인 가능 상태로 만든다.
+     * 거절된 신청도 다시 승인할 수 있다(거절 복구). 이미 재직 중인 사원의 소속 변경은
+     * 인사이동이지 승인이 아니므로 여기서 막는다.
+     */
     @Transactional
     public EmployeeSummaryResponse approve(Long employeeId, ApproveRequest request) {
         Employee employee = findOrThrow(employeeId);
+
+        if (employee.getStatus() == EmployeeStatus.ACTIVE) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT, "이미 승인된 계정입니다.");
+        }
 
         if (!deptRepository.existsById(request.deptId())) {
             throw FieldValidationException.of("deptId", "존재하지 않는 부서입니다.");
@@ -95,10 +103,18 @@ public class EmployeeService {
         return EmployeeSummaryResponse.from(toProfile(employee));
     }
 
-    /** 관리자 거절 — 로그인 시 A006 으로 막힌다. */
+    /**
+     * 관리자 거절 — 로그인 시 A006 으로 막힌다.
+     * 승인 대기 중인 신청만 거절할 수 있다. 재직자를 잠그는 것은 퇴사 처리이지 가입 거절이 아니다.
+     */
     @Transactional
     public EmployeeSummaryResponse reject(Long employeeId) {
         Employee employee = findOrThrow(employeeId);
+
+        if (employee.getStatus() != EmployeeStatus.PENDING) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT, "승인 대기 중인 신청만 거절할 수 있습니다.");
+        }
+
         employee.reject();
         return EmployeeSummaryResponse.from(toProfile(employee));
     }
@@ -125,8 +141,17 @@ public class EmployeeService {
         return new EmployeeProfile(employee, deptName, positionName);
     }
 
+    /**
+     * 승인·거절이 모두 이 메서드를 통과한다.
+     * 소프트 삭제된 사원은 없는 것으로 취급한다 — id 만 알면 탈퇴 계정을 되살릴 수 있으면 안 된다.
+     */
     private Employee findOrThrow(Long employeeId) {
-        return employeeRepository.findById(employeeId)
+        Employee employee = employeeRepository.findById(employeeId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+
+        if (employee.isDeleted()) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND);
+        }
+        return employee;
     }
 }

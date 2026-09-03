@@ -8,6 +8,8 @@ import com.company.groupware.common.response.PageResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -17,11 +19,13 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -80,6 +84,15 @@ class EmployeeAdminControllerTest {
     }
 
     @Test
+    @DisplayName("알 수 없는 status 는 500 이 아니라 C005 로 응답한다")
+    void listRejectsUnknownStatus() throws Exception {
+        mockMvc.perform(get("/api/v1/admin/employees").param("status", "UNKNOWN"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("C005"))
+                .andExpect(jsonPath("$.data.status").value("허용되지 않는 값입니다."));
+    }
+
+    @Test
     @DisplayName("승인하면 부서·직급이 배정된 ACTIVE 사원이 돌아온다")
     void approveAssignsDeptAndPosition() throws Exception {
         given(employeeService.approve(eq(7L), any())).willReturn(approved());
@@ -132,6 +145,34 @@ class EmployeeAdminControllerTest {
                         .content(VALID_APPROVE))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("U001"));
+    }
+
+    @Test
+    @DisplayName("size=0 은 빈 페이지가 아니라 기본 페이지 크기로 보정된다")
+    void listClampsZeroSize() throws Exception {
+        given(employeeService.findByStatus(eq(EmployeeStatus.PENDING), any()))
+                .willReturn(new PageResponse<>(List.of(), 0, 20, 0, 0, true, true));
+
+        mockMvc.perform(get("/api/v1/admin/employees").param("size", "0"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(employeeService).findByStatus(eq(EmployeeStatus.PENDING), pageable.capture());
+        assertThat(pageable.getValue().getPageSize()).isGreaterThan(0);
+    }
+
+    @Test
+    @DisplayName("음수 page 는 첫 페이지로 보정된다")
+    void listClampsNegativePage() throws Exception {
+        given(employeeService.findByStatus(eq(EmployeeStatus.PENDING), any()))
+                .willReturn(new PageResponse<>(List.of(), 0, 20, 0, 0, true, true));
+
+        mockMvc.perform(get("/api/v1/admin/employees").param("page", "-1"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(employeeService).findByStatus(eq(EmployeeStatus.PENDING), pageable.capture());
+        assertThat(pageable.getValue().getPageNumber()).isEqualTo(0);
     }
 
     @Test

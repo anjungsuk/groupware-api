@@ -11,6 +11,7 @@ import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -53,6 +54,19 @@ public class GlobalExceptionHandler {
         ErrorCode code = ErrorCode.INVALID_INPUT;
         return ResponseEntity.status(code.getStatus())
                 .body(ApiResponse.error(code.getCode(), code.getMessage()));
+    }
+
+    /**
+     * 경로·쿼리 파라미터의 타입 변환 실패 (예: ?status=UNKNOWN 이 EmployeeStatus 로 안 바뀜).
+     * 핸들러가 없으면 최상위 Exception 으로 떨어져 클라이언트 실수가 500 으로 보고된다.
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiResponse<Map<String, String>>> handleTypeMismatch(
+            MethodArgumentTypeMismatchException e) {
+        ErrorCode code = ErrorCode.INVALID_TYPE_VALUE;
+        return ResponseEntity.status(code.getStatus())
+                .body(ApiResponse.error(code.getCode(), code.getMessage(),
+                        Map.of(e.getName(), "허용되지 않는 값입니다.")));
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
