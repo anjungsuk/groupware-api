@@ -7,6 +7,7 @@ import com.company.groupware.employee.internal.DeptRepository;
 import com.company.groupware.employee.internal.EmployeeNoGenerator;
 import com.company.groupware.employee.internal.EmployeeRepository;
 import com.company.groupware.employee.internal.PositionRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -57,7 +58,13 @@ public class EmployeeService {
                 command.emergencyRelation(),
                 command.emergencyPhone());
 
-        return employeeRepository.save(employee);
+        try {
+            // 동시 가입(더블 클릭·재시도)은 ux_employees_email_active 가 잡는다.
+            // 커밋 시점이 아니라 여기서 예외를 받아야 500 대신 C001 로 응답할 수 있다.
+            return employeeRepository.saveAndFlush(employee);
+        } catch (DataIntegrityViolationException e) {
+            throw FieldValidationException.of("email", "이미 사용중인 이메일입니다.");
+        }
     }
 
     public Optional<Employee> findActiveByEmail(String email) {
