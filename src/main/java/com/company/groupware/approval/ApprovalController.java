@@ -9,7 +9,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -26,14 +28,22 @@ public class ApprovalController {
     private final ApprovalService approvalService;
     private final EmployeeService employeeService;
 
-    /** 결재 대기함 — 내 차례가 온 문서만 (TRD §5 box=pending) */
-    @GetMapping("/pending")
-    public ApiResponse<List<ApprovalDocSummary>> pending(Authentication authentication) {
+    /** 문서함 — TRD §5 `GET /docs?box=`. 기본은 결재 대기함이다. */
+    @GetMapping
+    public ApiResponse<List<ApprovalDocSummary>> box(
+            @RequestParam(defaultValue = "PENDING") DocBox box,
+            Authentication authentication) {
         Long me = currentEmployeeId(authentication);
 
-        return ApiResponse.ok(approvalService.findPendingDocs(me).stream()
+        return ApiResponse.ok(approvalService.findBox(box, me).stream()
                 .map(doc -> ApprovalDocSummary.of(doc, nameOf(doc.getDrafterId())))
                 .toList());
+    }
+
+    /** 결재 대기함 (box=PENDING 과 같다. 기존 경로를 유지한다) */
+    @GetMapping("/pending")
+    public ApiResponse<List<ApprovalDocSummary>> pending(Authentication authentication) {
+        return box(DocBox.PENDING, authentication);
     }
 
     /** 문서 상세·진행현황 */
@@ -53,6 +63,16 @@ public class ApprovalController {
                 request.title(), request.content());
 
         return ApiResponse.ok(ApprovalDocResponse.of(doc, List.of()));
+    }
+
+    /** 임시저장 수정 */
+    @PutMapping("/{id}")
+    public ApiResponse<ApprovalDocResponse> edit(@PathVariable Long id,
+                                                 @Valid @RequestBody CreateDocRequest request,
+                                                 Authentication authentication) {
+        ApprovalDoc doc = approvalService.editDraft(
+                id, currentEmployeeId(authentication), request.title(), request.content());
+        return ApiResponse.ok(ApprovalDocResponse.of(doc, lineResponses(id)));
     }
 
     @PostMapping("/{id}/submit")

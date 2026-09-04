@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 결재 처리 — 결재 모듈의 공식 API (T1-3, TRD §4.2).
@@ -33,6 +34,49 @@ public class ApprovalService {
     private final DocFormRepository formRepository;
     private final ApprovalLineFactory lineFactory;
     private final DocNoGenerator docNoGenerator;
+
+    /** 활성 양식 목록 — 결재 작성 화면의 양식 선택지. */
+    public List<DocForm> findForms() {
+        return formRepository.findByActiveTrueOrderByCodeAsc();
+    }
+
+    public DocForm findForm(String code) {
+        return formRepository.findFirstByCodeAndActiveTrueOrderByVersionDesc(code)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ENTITY_NOT_FOUND,
+                        "양식을 찾을 수 없습니다: " + code));
+    }
+
+    /**
+     * 상신 전 결재선 미리보기 — 실제 상신과 같은 규칙으로 뽑는다.
+     * 결재자가 비어 있으면 여기서 미리 드러나므로 상신 버튼을 누르기 전에 알 수 있다.
+     */
+    public List<ApprovalLine> previewLine(String formCode, Long drafterDeptId) {
+        return lineFactory.create(null, findForm(formCode), drafterDeptId);
+    }
+
+    /** 문서함 — 상자별로 다른 기준을 쓴다. */
+    public List<ApprovalDoc> findBox(DocBox box, Long employeeId) {
+        return switch (box) {
+            case PENDING -> findPendingDocs(employeeId);
+            case DRAFT -> docRepository.findByDrafterIdAndStatusInOrderByIdDesc(
+                    employeeId, Set.of(DocStatus.DRAFT));
+            case DONE -> docRepository.findByDrafterIdAndStatusInOrderByIdDesc(
+                    employeeId, Set.of(DocStatus.COMPLETED));
+            // 상신함은 임시저장을 뺀 나머지 — 한 번이라도 올린 문서다
+            case SENT -> docRepository.findByDrafterIdAndStatusInOrderByIdDesc(
+                    employeeId, Set.of(DocStatus.IN_PROGRESS, DocStatus.COMPLETED,
+                            DocStatus.REJECTED, DocStatus.WITHDRAWN));
+        };
+    }
+
+    /** 임시저장 수정 — 상신 전 문서만, 상신자만. */
+    @Transactional
+    public ApprovalDoc editDraft(Long docId, Long requesterId, String title, String content) {
+        ApprovalDoc doc = findDoc(docId);
+        requireDrafter(doc, requesterId, "수정");
+        doc.editDraft(title, content);
+        return doc;
+    }
 
     /** 임시저장 — 결재선은 아직 만들지 않는다. 상신 시점 조직도로 만들어야 하기 때문이다. */
     @Transactional
