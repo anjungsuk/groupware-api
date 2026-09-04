@@ -4,7 +4,9 @@ import com.company.groupware.common.response.ApiResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -28,6 +30,29 @@ public class MenuAdminController {
     @GetMapping("/menus")
     public ApiResponse<List<MenuResponse>> menus() {
         return ApiResponse.ok(menuService.findAllMenus().stream().map(MenuResponse::from).toList());
+    }
+
+    @PostMapping("/menus")
+    public ApiResponse<MenuResponse> createMenu(@Valid @RequestBody MenuSaveRequest request) {
+        return ApiResponse.ok(MenuResponse.from(menuService.createMenu(request)));
+    }
+
+    @PutMapping("/menus/{id}")
+    public ApiResponse<MenuResponse> updateMenu(@PathVariable Long id,
+                                                @Valid @RequestBody MenuSaveRequest request) {
+        return ApiResponse.ok(MenuResponse.from(menuService.updateMenu(id, request)));
+    }
+
+    @DeleteMapping("/menus/{id}")
+    public ApiResponse<Void> deleteMenu(@PathVariable Long id) {
+        menuService.deleteMenu(id);
+        return ApiResponse.ok();
+    }
+
+    /** 사원별 그룹 — 사원 권한 화면이 한 번에 받는다. */
+    @GetMapping("/employee-groups")
+    public ApiResponse<List<EmployeeGroupResponse>> employeeGroups() {
+        return ApiResponse.ok(menuService.findAllEmployeeGroups());
     }
 
     @GetMapping("/groups")

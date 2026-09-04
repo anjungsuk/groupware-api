@@ -9,4 +9,6 @@ public interface GroupMenuRepository extends JpaRepository<GroupMenu, GroupMenu.
     List<GroupMenu> findByGroupId(Long groupId);
 
     void deleteByGroupId(Long groupId);
+
+    void deleteByMenuId(Long menuId);
 }

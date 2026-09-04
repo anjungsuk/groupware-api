@@ -2,6 +2,7 @@ package com.company.groupware.menu;
 
 import com.company.groupware.common.exception.BusinessException;
 import com.company.groupware.common.exception.ErrorCode;
+import com.company.groupware.common.exception.FieldValidationException;
 import com.company.groupware.menu.internal.EmployeeGroup;
 import com.company.groupware.menu.internal.EmployeeGroupRepository;
 import com.company.groupware.menu.internal.GroupMenu;
@@ -37,6 +38,82 @@ public class MenuService {
     /** 내가 볼 수 있는 메뉴 트리. */
     public List<MenuNode> findMyMenus(Long employeeId) {
         return toTree(menuRepository.findVisibleTo(employeeId));
+    }
+
+    /** 메뉴 등록. code 는 유일해야 한다 — 권한 매핑과 시드가 code 로 걸려 있다. */
+    @Transactional
+    public Menu createMenu(MenuSaveRequest request) {
+        menuRepository.findByCode(request.code()).ifPresent(existing -> {
+            throw FieldValidationException.of("code", "이미 쓰고 있는 코드입니다.");
+        });
+        validateParent(request.parentId(), null);
+
+        return menuRepository.save(Menu.create(request.code(), request.name(),
+                blankToNull(request.path()), request.parentId(), request.sortOrder()));
+    }
+
+    /** 메뉴 수정. code 는 바꾸지 않는다 — 바뀌면 권한 매핑이 조용히 끊긴다. */
+    @Transactional
+    public Menu updateMenu(Long menuId, MenuSaveRequest request) {
+        Menu menu = findMenu(menuId);
+        validateParent(request.parentId(), menuId);
+
+        menu.update(request.name(), blankToNull(request.path()), request.parentId(),
+                request.sortOrder(), request.active());
+        return menu;
+    }
+
+    /** 메뉴 삭제. 하위 메뉴가 남아 있으면 거부한다 — 갈 곳 없는 항목이 생긴다. */
+    @Transactional
+    public void deleteMenu(Long menuId) {
+        Menu menu = findMenu(menuId);
+
+        boolean hasChildren = menuRepository.findAll().stream()
+                .anyMatch(child -> menuId.equals(child.getParentId()));
+        if (hasChildren) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT,
+                    "하위 메뉴가 있어 삭제할 수 없습니다. 하위 메뉴를 먼저 정리해 주세요.");
+        }
+
+        // 권한 매핑도 함께 지운다 (FK ON DELETE CASCADE 가 있지만 명시한다)
+        groupMenuRepository.deleteByMenuId(menuId);
+        menuRepository.delete(menu);
+    }
+
+    /** 사원별 그룹 — 사원 권한 화면이 한 번에 받아 N+1 을 피한다. */
+    public List<EmployeeGroupResponse> findAllEmployeeGroups() {
+        return employeeGroupRepository.findAll().stream()
+                .collect(Collectors.groupingBy(EmployeeGroup::getEmployeeId,
+                        Collectors.mapping(EmployeeGroup::getGroupId, Collectors.toList())))
+                .entrySet().stream()
+                .map(entry -> new EmployeeGroupResponse(entry.getKey(), entry.getValue()))
+                .toList();
+    }
+
+    private Menu findMenu(Long menuId) {
+        return menuRepository.findById(menuId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ENTITY_NOT_FOUND,
+                        "메뉴를 찾을 수 없습니다."));
+    }
+
+    /** 상위는 최상위 메뉴만 될 수 있다. 2단을 넘기면 화면이 그리지 못한다. */
+    private void validateParent(Long parentId, Long selfId) {
+        if (parentId == null) {
+            return;
+        }
+        if (parentId.equals(selfId)) {
+            throw FieldValidationException.of("parentId", "자기 자신을 상위로 둘 수 없습니다.");
+        }
+
+        Menu parent = menuRepository.findById(parentId)
+                .orElseThrow(() -> FieldValidationException.of("parentId", "존재하지 않는 상위 메뉴입니다."));
+        if (!parent.isRoot()) {
+            throw FieldValidationException.of("parentId", "메뉴는 2단까지만 만들 수 있습니다.");
+        }
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     /** 관리 화면용 전체 메뉴(비활성 포함). */

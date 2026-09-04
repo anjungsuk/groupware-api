@@ -11,7 +11,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Optional;
@@ -46,29 +45,17 @@ class MenuServiceTest {
                 employeeGroupRepository);
     }
 
-    /** Menu 는 생성 경로가 없다 — 관리 화면(등록)이 생기면 그 팩터리로 바꾼다. */
+    /** 팩터리로 만들고 id 만 넣는다 — id 는 DB 가 채우므로 테스트에서만 주입한다. */
     private static Menu menu(long id, String code, String name, String path, Long parentId, int sort) {
+        Menu menu = Menu.create(code, name, path, parentId, sort);
         try {
-            Constructor<Menu> constructor = Menu.class.getDeclaredConstructor();
-            constructor.setAccessible(true);
-            Menu menu = constructor.newInstance();
-            set(menu, "id", id);
-            set(menu, "code", code);
-            set(menu, "name", name);
-            set(menu, "path", path);
-            set(menu, "parentId", parentId);
-            set(menu, "sortOrder", sort);
-            set(menu, "active", true);
-            return menu;
+            Field f = Menu.class.getDeclaredField("id");
+            f.setAccessible(true);
+            f.set(menu, id);
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
-    }
-
-    private static void set(Object target, String field, Object value) throws Exception {
-        Field f = target.getClass().getDeclaredField(field);
-        f.setAccessible(true);
-        f.set(target, value);
+        return menu;
     }
 
     @Test
@@ -175,6 +162,101 @@ class MenuServiceTest {
         assertThat(groups).hasSize(1);
         assertThat(groups.get(0).menuIds()).containsExactly(2L, 3L);
         assertThat(groups.get(0).memberCount()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("메뉴를 만들면 활성 상태로 시작한다")
+    void createMenuStartsActive() {
+        given(menuRepository.findByCode("REPORT")).willReturn(Optional.empty());
+        given(menuRepository.save(org.mockito.ArgumentMatchers.any(Menu.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+
+        Menu created = service.createMenu(
+                new MenuSaveRequest("REPORT", "보고서", "/reports", null, 4, true));
+
+        assertThat(created.getCode()).isEqualTo("REPORT");
+        assertThat(created.isActive()).isTrue();
+    }
+
+    @Test
+    @DisplayName("같은 코드로는 만들 수 없다 — 권한 매핑이 코드로 걸려 있다")
+    void duplicateCodeIsRejected() {
+        given(menuRepository.findByCode("HOME"))
+                .willReturn(Optional.of(menu(1, "HOME", "홈", "/", null, 1)));
+
+        org.assertj.core.api.Assertions
+                .assertThatThrownBy(() -> service.createMenu(
+                        new MenuSaveRequest("HOME", "홈2", "/", null, 1, true)))
+                .hasMessageContaining("잘못된 입력값");
+    }
+
+    @Test
+    @DisplayName("3단 메뉴는 만들 수 없다 — 화면이 2단까지만 그린다")
+    void thirdLevelIsRejected() {
+        Menu child = menu(3, "APPROVAL_NEW", "결재 작성", "/docs/new", 2L, 1);
+        given(menuRepository.findByCode("DEEP")).willReturn(Optional.empty());
+        given(menuRepository.findById(3L)).willReturn(Optional.of(child));
+
+        org.assertj.core.api.Assertions
+                .assertThatThrownBy(() -> service.createMenu(
+                        new MenuSaveRequest("DEEP", "더 깊게", "/deep", 3L, 1, true)))
+                .hasMessageContaining("잘못된 입력값");
+    }
+
+    @Test
+    @DisplayName("자기 자신을 상위로 둘 수 없다")
+    void selfParentIsRejected() {
+        given(menuRepository.findById(2L))
+                .willReturn(Optional.of(menu(2, "APPROVAL", "전자결재", null, null, 2)));
+
+        org.assertj.core.api.Assertions
+                .assertThatThrownBy(() -> service.updateMenu(2L,
+                        new MenuSaveRequest("APPROVAL", "전자결재", null, 2L, 2, true)))
+                .hasMessageContaining("잘못된 입력값");
+    }
+
+    @Test
+    @DisplayName("하위 메뉴가 있으면 삭제하지 않는다 — 갈 곳 없는 항목이 생긴다")
+    void deleteWithChildrenIsRejected() {
+        Menu parent = menu(2, "APPROVAL", "전자결재", null, null, 2);
+        given(menuRepository.findById(2L)).willReturn(Optional.of(parent));
+        given(menuRepository.findAll()).willReturn(List.of(parent,
+                menu(3, "APPROVAL_NEW", "결재 작성", "/docs/new", 2L, 1)));
+
+        org.assertj.core.api.Assertions
+                .assertThatThrownBy(() -> service.deleteMenu(2L))
+                .hasMessageContaining("하위 메뉴가 있어");
+
+        then(menuRepository).should(org.mockito.Mockito.never()).delete(parent);
+    }
+
+    @Test
+    @DisplayName("삭제하면 권한 매핑도 함께 지운다")
+    void deleteAlsoRemovesGrants() {
+        Menu leaf = menu(5, "APPROVAL_DONE", "완료", "/docs/done", 2L, 5);
+        given(menuRepository.findById(5L)).willReturn(Optional.of(leaf));
+        given(menuRepository.findAll()).willReturn(List.of(leaf));
+
+        service.deleteMenu(5L);
+
+        then(groupMenuRepository).should().deleteByMenuId(5L);
+        then(menuRepository).should().delete(leaf);
+    }
+
+    @Test
+    @DisplayName("사원별 그룹을 한 번에 모아 준다 — 화면이 N+1 로 조회하지 않게")
+    void employeeGroupsAreBatched() {
+        given(employeeGroupRepository.findAll()).willReturn(List.of(
+                new EmployeeGroup(10L, 1L), new EmployeeGroup(10L, 2L),
+                new EmployeeGroup(11L, 1L)));
+
+        List<EmployeeGroupResponse> all = service.findAllEmployeeGroups();
+
+        assertThat(all).hasSize(2);
+        assertThat(all).filteredOn(e -> e.employeeId().equals(10L))
+                .singleElement()
+                .extracting(EmployeeGroupResponse::groupIds)
+                .isEqualTo(List.of(1L, 2L));
     }
 
     @Test
