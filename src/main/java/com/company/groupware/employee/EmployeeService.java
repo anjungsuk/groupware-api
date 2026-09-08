@@ -13,8 +13,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /** 사원 도메인의 공식 API. 다른 모듈은 이 서비스를 통해서만 접근한다. */
 @Service
@@ -79,10 +81,18 @@ public class EmployeeService {
                 .map(employee -> EmployeeSummaryResponse.from(toProfile(employee))));
     }
 
-    /** 관리자 승인 — 부서·직급을 배정하고 로그인 가능 상태로 만든다. */
+    /**
+     * 관리자 승인 — 부서·직급을 배정하고 로그인 가능 상태로 만든다.
+     * 거절된 신청도 다시 승인할 수 있다(거절 복구). 이미 재직 중인 사원의 소속 변경은
+     * 인사이동이지 승인이 아니므로 여기서 막는다.
+     */
     @Transactional
     public EmployeeSummaryResponse approve(Long employeeId, ApproveRequest request) {
         Employee employee = findOrThrow(employeeId);
+
+        if (employee.getStatus() == EmployeeStatus.ACTIVE) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT, "이미 승인된 계정입니다.");
+        }
 
         if (!deptRepository.existsById(request.deptId())) {
             throw FieldValidationException.of("deptId", "존재하지 않는 부서입니다.");
@@ -95,10 +105,18 @@ public class EmployeeService {
         return EmployeeSummaryResponse.from(toProfile(employee));
     }
 
-    /** 관리자 거절 — 로그인 시 A006 으로 막힌다. */
+    /**
+     * 관리자 거절 — 로그인 시 A006 으로 막힌다.
+     * 승인 대기 중인 신청만 거절할 수 있다. 재직자를 잠그는 것은 퇴사 처리이지 가입 거절이 아니다.
+     */
     @Transactional
     public EmployeeSummaryResponse reject(Long employeeId) {
         Employee employee = findOrThrow(employeeId);
+
+        if (employee.getStatus() != EmployeeStatus.PENDING) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT, "승인 대기 중인 신청만 거절할 수 있습니다.");
+        }
+
         employee.reject();
         return EmployeeSummaryResponse.from(toProfile(employee));
     }
@@ -114,6 +132,42 @@ public class EmployeeService {
                 .map(PositionResponse::from).toList();
     }
 
+    /**
+     * 결재자 탐색 — 시작 부서에서 해당 직급을 찾고, 없으면 상위 부서로 올라간다.
+     *
+     * PRD §5 결재선이 직급 기반(차장 → 실장)인데 차장은 팀에, 실장은 상위 실에 있다.
+     * 부서 계층을 타고 올라가면 두 경우를 한 규칙으로 찾는다.
+     * 조직도가 잘못 설정돼 부모가 순환하면 무한 루프가 되므로 방문한 부서를 기록한다.
+     */
+    public Optional<Long> findApproverId(Long fromDeptId, String positionCode) {
+        Set<Long> visited = new HashSet<>();
+
+        for (Long deptId = fromDeptId; deptId != null && visited.add(deptId); ) {
+            Optional<Employee> approver = employeeRepository
+                    .findFirstByDeptIdAndPositionCodeAndStatusAndDeletedFalseOrderByEmployeeNoAsc(
+                            deptId, positionCode, EmployeeStatus.ACTIVE);
+            if (approver.isPresent()) {
+                return approver.map(Employee::getId);
+            }
+            deptId = deptRepository.findById(deptId).map(Dept::getParentId).orElse(null);
+        }
+        return Optional.empty();
+    }
+
+    /** 표시용 이름. 결재선처럼 id 만 가진 쪽에서 쓴다. 없는 id 면 빈 값. */
+    public Optional<String> findNameById(Long employeeId) {
+        return employeeRepository.findById(employeeId)
+                .filter(e -> !e.isDeleted())
+                .map(Employee::getName);
+    }
+
+    /** 상신자의 부서 — 결재선을 만들 시작점이다. */
+    public Optional<Long> findDeptIdById(Long employeeId) {
+        return employeeRepository.findById(employeeId)
+                .filter(e -> !e.isDeleted())
+                .map(Employee::getDeptId);
+    }
+
     /** 화면 표시용 부서·직급 이름. 승인 전이면 둘 다 null 이다. */
     public EmployeeProfile toProfile(Employee employee) {
         String deptName = employee.getDeptId() == null ? null
@@ -125,8 +179,17 @@ public class EmployeeService {
         return new EmployeeProfile(employee, deptName, positionName);
     }
 
+    /**
+     * 승인·거절이 모두 이 메서드를 통과한다.
+     * 소프트 삭제된 사원은 없는 것으로 취급한다 — id 만 알면 탈퇴 계정을 되살릴 수 있으면 안 된다.
+     */
     private Employee findOrThrow(Long employeeId) {
-        return employeeRepository.findById(employeeId)
+        Employee employee = employeeRepository.findById(employeeId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+
+        if (employee.isDeleted()) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND);
+        }
+        return employee;
     }
 }
